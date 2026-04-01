@@ -20,12 +20,15 @@ venv.bak/
 # Environment
 .env
 .env.local
+.env.example
 .env.*.local
+skills-lock.json
 
 # Project specific
 pdfs/
 vectordb/
 *.pdf
+.agents/
 
 # OS
 .DS_Store
@@ -36,3 +39,4 @@ Thumbs.db
 
 # Logs
 *.log
+
