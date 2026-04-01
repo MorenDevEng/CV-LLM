@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RAG PDF - Analizador de CV para RRHH</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <h1>Analizador de CV para RRHH</h1>
+        
+        <div class="main-layout">
+            <div class="panel">
+                <div class="panel-title">Cargar CV</div>
+                
+                <div class="dropzone" id="dropzone">
+                    <span class="dropzone-icon"></span>
+                    <div class="dropzone-text">Arrastra tu CV (PDF) aquí o haz clic para seleccionar</div>
+                    <div class="dropzone-subtext">Solo se acepta formato PDF</div>
+                </div>
+                
+                <input type="file" id="fileInput" accept=".pdf">
+                
+                <div class="file-info" id="fileInfo">
+                    <div class="file-info-header">
+                        <div>
+                            <div class="file-name" id="fileName"></div>
+                            <div class="file-status" id="fileStatus">Procesando...</div>
+                        </div>
+                        <button class="remove-btn" id="removeBtn" title="Cambiar CV">&times;</button>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progressFill"></div>
+                    </div>
+                </div>
+                
+                <div class="keywords-section">
+                    <div class="keywords-title">Comparar con Vacante</div>
+                    <input type="text" class="keywords-input" id="keywordsInput" 
+                           placeholder="Ingresa las palabras clave separadas por coma (ej: python, sql, liderazgo)">
+                    <button class="keywords-btn" id="keywordsBtn" disabled>Analizar Coincidencia</button>
+                    
+                    <div class="match-result" id="matchResult">
+                        <div class="match-percentage" id="matchPercentage">0%</div>
+                        <div class="match-keywords" id="matchKeywords"></div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="panel">
+                <div class="panel-title">Asistente de Análisis</div>
+                
+                <div class="chat-container">
+                    <div class="chat-messages" id="chatMessages">
+                        <div class="message system">
+                            Sube un CV y espera a que se procese. Luego puedes chatear para analizar el perfil o usar las palabras clave para comparar con una vacante.
+                        </div>
+                    </div>
+                    
+                    <div class="chat-input-container">
+                        <input type="text" id="chatInput" placeholder="Escribe tu pregunta sobre el CV..." disabled>
+                        <button class="send-btn" id="sendBtn" disabled>
+                            <span>Enviar</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let selectedFile = null;
+        let pdfProcessed = false;
+        
+        const dropzone = document.getElementById('dropzone');
+        const fileInput = document.getElementById('fileInput');
+        const fileInfo = document.getElementById('fileInfo');
+        const fileName = document.getElementById('fileName');
+        const fileStatus = document.getElementById('fileStatus');
+        const progressFill = document.getElementById('progressFill');
+        const chatInput = document.getElementById('chatInput');
+        const sendBtn = document.getElementById('sendBtn');
+        const chatMessages = document.getElementById('chatMessages');
+        const keywordsInput = document.getElementById('keywordsInput');
+        const keywordsBtn = document.getElementById('keywordsBtn');
+        const matchResult = document.getElementById('matchResult');
+        const matchPercentage = document.getElementById('matchPercentage');
+        const matchKeywords = document.getElementById('matchKeywords');
+        const removeBtn = document.getElementById('removeBtn');
+        
+        dropzone.addEventListener('click', () => fileInput.click());
+        
+        dropzone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropzone.classList.add('dragover');
+        });
+        
+        dropzone.addEventListener('dragleave', () => {
+            dropzone.classList.remove('dragover');
+        });
+        
+        dropzone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropzone.classList.remove('dragover');
+            const files = e.dataTransfer.files;
+            if (files.length > 0) handleFile(files[0]);
+        });
+        
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) handleFile(e.target.files[0]);
+        });
+        
+        function resetChat() {
+            chatMessages.innerHTML = `
+                <div class="message system">
+                    Sube un CV y espera a que se procese. Luego puedes chatear para analizar el perfil o usar las palabras clave para comparar con una vacante.
+                </div>
+            `;
+        }
+        
+        removeBtn.addEventListener('click', () => {
+            selectedFile = null;
+            pdfProcessed = false;
+            fileInfo.classList.remove('show');
+            progressFill.style.width = '0%';
+            fileName.textContent = '';
+            fileStatus.textContent = '';
+            fileInput.value = '';
+            chatInput.disabled = true;
+            sendBtn.disabled = true;
+            keywordsBtn.disabled = true;
+            keywordsInput.value = '';
+            matchResult.classList.remove('show');
+            dropzone.style.display = 'flex';
+            resetChat();
+        });
+        
+        function handleFile(file) {
+            if (file.type !== 'application/pdf') {
+                addMessage('system', 'Por favor selecciona un archivo PDF válido.');
+                return;
+            }
+            
+            selectedFile = file;
+            fileName.textContent = file.name;
+            fileInfo.classList.add('show');
+            fileStatus.textContent = 'Subiendo archivo...';
+            
+            uploadFile(file);
+        }
+        
+        async function uploadFile(file) {
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            try {
+                progressFill.style.width = '30%';
+                fileStatus.textContent = 'Procesando CV y generando embeddings...';
+                
+                const response = await fetch('/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    progressFill.style.width = '100%';
+                    fileStatus.textContent = '¡CV procesado correctamente!';
+                    pdfProcessed = true;
+                    
+                    chatInput.disabled = false;
+                    sendBtn.disabled = false;
+                    keywordsBtn.disabled = false;
+                    chatInput.focus();
+                    
+                    dropzone.style.display = 'none';
+                    
+                    addMessage('assistant', 'CV cargado y procesado. Ahora puedes analizarla con preguntas o comparar con una vacante usando las palabras clave.');
+                } else {
+                    fileStatus.textContent = 'Error: ' + data.error;
+                    addMessage('system', 'Error al procesar el CV: ' + data.error);
+                }
+            } catch (error) {
+                fileStatus.textContent = 'Error de conexión';
+                addMessage('system', 'Error al conectar con el servidor: ' + error.message);
+            }
+        }
+        
+        async function analyzeKeywords() {
+            const keywords = keywordsInput.value.trim();
+            if (!keywords || !pdfProcessed) return;
+            
+            keywordsBtn.disabled = true;
+            keywordsBtn.innerHTML = '<span class="spinner"></span>Analizando';
+            
+            try {
+                const response = await fetch('/match', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ keywords })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    matchPercentage.textContent = data.percentage + '%';
+                    
+                    let resultClass = 'low';
+                    if (data.percentage >= 70) resultClass = 'high';
+                    else if (data.percentage >= 40) resultClass = 'medium';
+                    
+                    matchResult.className = 'match-result show ' + resultClass;
+                    matchKeywords.textContent = `Palabras coincididas: ${data.matched.join(', ')}`;
+                } else {
+                    matchResult.className = 'match-result show low';
+                    matchPercentage.textContent = 'Error';
+                    matchKeywords.textContent = data.error;
+                }
+            } catch (error) {
+                matchResult.className = 'match-result show low';
+                matchPercentage.textContent = 'Error';
+                matchKeywords.textContent = error.message;
+            }
+            
+            keywordsBtn.disabled = false;
+            keywordsBtn.innerHTML = 'Analizar Coincidencia';
+        }
+        
+        keywordsBtn.addEventListener('click', analyzeKeywords);
+        
+        keywordsInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') analyzeKeywords();
+        });
+        
+        async function sendMessage() {
+            const message = chatInput.value.trim();
+            if (!message || !pdfProcessed) return;
+            
+            addMessage('user', message);
+            chatInput.value = '';
+            
+            const sendBtnEl = document.getElementById('sendBtn');
+            sendBtnEl.disabled = true;
+            sendBtnEl.innerHTML = '<span class="spinner"></span>Procesando';
+            
+            try {
+                const response = await fetch('/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    addMessage('assistant', data.response);
+                } else {
+                    addMessage('system', 'Error: ' + data.error);
+                }
+            } catch (error) {
+                addMessage('system', 'Error de conexión: ' + error.message);
+            }
+            
+            sendBtnEl.disabled = false;
+            sendBtnEl.innerHTML = '<span>Enviar</span>';
+        }
+        
+        sendBtn.addEventListener('click', sendMessage);
+        
+        chatInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') sendMessage();
+        });
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        function addMessage(type, content) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${type}`;
+            
+            const time = new Date().toLocaleTimeString('es-ES', { 
+                hour: '2-digit', 
+                minute: '2-digit' 
+            });
+            
+            const escapedContent = escapeHtml(content).replace(/\n/g, '<br>');
+            
+            messageDiv.innerHTML = `
+                <div>${escapedContent}</div>
+                <div class="message-time">${time}</div>
+            `;
+            
+            chatMessages.appendChild(messageDiv);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+    </script>
+</body>
+</html>
